@@ -160,7 +160,7 @@ We construct a similarity matrix using a Gaussian kernel applied to the entropy-
 \mathbf{S}_{ij} = \exp\left(-\frac{\mathbf{K}_{ij}}{\sigma^2}\right)
 \end{equation}
 
-where $\sigma = 1.5$ is a bandwidth parameter. The diffusion matrix is then row-normalized:
+where $\sigma = 1.5$ is a bandwidth parameter. The similarity matrix is then row-normalized:
 
 \begin{equation}
 \mathbf{M}_{ij} = \frac{\mathbf{S}_{ij}}{\sum_{k} \mathbf{S}_{ik}}
