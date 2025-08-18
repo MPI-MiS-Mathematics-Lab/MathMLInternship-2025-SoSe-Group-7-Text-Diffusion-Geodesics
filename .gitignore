@@ -24,3 +24,4 @@ __pycache__
 *.synctex.gz
 
 openwebmath_lziv_distance.py
+!data/wiki_ml_zeroshot.parquet
