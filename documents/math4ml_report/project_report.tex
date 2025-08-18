@@ -184,7 +184,7 @@ With this eigendecomposition, the simulated diffusion (random walks) of t steps 
 
 For non-integer values of $t$ and negative eigenvalues, the complex valued root is calculated and only the real part of that is kept.
 
-The diffusion distance between points $i$ and $j$ at time $t$ is defined as:
+The diffusion distance \cite{coifman2006diffusion} between points $i$ and $j$ at time $t$ is defined as:
 
 \begin{equation}
 D_t(i,j) = \sqrt{\sum_{k} \frac{(\mathbf{M}^t[i,k] - \mathbf{M}^t[j,k])^2}{\pi_k}}
@@ -224,7 +224,7 @@ We computed geodesic paths between conceptually distant documents, starting from
 \label{fig:geodesic}
 \end{figure}
 
-The 2D spring layout \cite{spring-layout} visualization in Figure \ref{fig:geodesic} reveals the intrinsic geometric structure of the document manifold through diffusion map embedding. The color gradient represents SVD entropy values, creating a natural "complexity landscape" where blue regions (low entropy, 0.3-0.4) may correspond to foundational concepts, and red regions (high entropy, 0.7-0.8) specialized topics.
+The 2D spring layout \cite{spring-layout} visualization of the KNN graph in Figure \ref{fig:geodesic} reveals the intrinsic geometric structure of the document manifold through diffusion map embedding. The color gradient represents SVD entropy values, creating a natural "complexity landscape" where blue regions (low entropy, 0.3-0.4) may correspond to foundational concepts, and red regions (high entropy, 0.7-0.8) specialized topics.
 
 The geodesic path (red line with triangular markers) demonstrates a clear semantic progression from the bottom-right (start point, green circle) to the center-left (end point, red square). This trajectory traverses multiple entropy gradients, suggesting the path naturally follows increasing conceptual complexity. Notably, the path avoids the densest red regions, indicating that the algorithm discovers routes through intermediate complexity levels rather than attempting direct transitions between fundamentally different concept spaces.
 

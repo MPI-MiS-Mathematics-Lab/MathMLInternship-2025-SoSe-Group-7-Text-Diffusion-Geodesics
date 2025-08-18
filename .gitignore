@@ -22,3 +22,5 @@ __pycache__
 *.fls
 *.fdb_latexmk
 *.synctex.gz
+
+openwebmath_lziv_distance.py
