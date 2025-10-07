@@ -1,5 +1,7 @@
 acl_25
 
+*.db
+
 *keys*.json
 *.csv
 *.parquet

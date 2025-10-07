@@ -35,7 +35,6 @@ def get_graph():
     for node_id, node in graph_data['nodes'].items():
         node['text'] = document_map.get(int(node_id), "")  # Default to empty string if not found
 
-    print("Graph data:", graph_data)  # Debugging log
     return jsonify(graph_data)
 
 @app.route('/document', methods=['GET'])
@@ -116,6 +115,13 @@ def get_geodesic():
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
     return jsonify({'path': path, 'length': length})
+
+@app.route('/diffusion_times', methods=['GET'])
+def get_diffusion_times():
+    conn = get_db_connection()
+    diffusion_times = conn.execute('SELECT DISTINCT diffusion_time FROM graph').fetchall()
+    conn.close()
+    return jsonify([row['diffusion_time'] for row in diffusion_times])
 
 if __name__ == '__main__':
     app.run(debug=True)

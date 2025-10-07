@@ -16,7 +16,8 @@ c.execute('''CREATE TABLE documents (
              url TEXT,
              svd_entropy REAL,
              topic INTEGER,
-             embedding TEXT
+             embedding TEXT,
+             domain TEXT  -- New field for document domain
              )''')
 
 c.execute('''CREATE TABLE graph (
