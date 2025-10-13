@@ -146,7 +146,7 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 #%%
-sigma = 1.5  # Adjust sigma as needed for kernel smoothing
+sigma = 1.1  # Adjust sigma as needed for kernel smoothing
 similarity_matrix = np.exp(-kernel_matrix / sigma**2)
 # Set diagonal to zero to avoid self-similarity
 similarity_matrix -= np.diag(np.diag(similarity_matrix))
@@ -234,7 +234,7 @@ for t in tqdm(t_values):
 # Choose a diffusion time t 1, 1.5, 2, 2.5
 # higher diffusion time will seperate high entropy points more from low entropy points,
 # results in longer paths between points with low and high entropy
-t = 1.3
+t = 1.2
 # Compute the diffused Markov matrix for time t
 #M_t = eigv_inv[:n_markov_components].T @ np.diag(eigenvalues[:n_markov_components])**t @ eigenvectors[:, :n_markov_components].T
 
@@ -312,7 +312,7 @@ G = nx.Graph(sparse_knn_graph)
 
 #%%
 # Create compact 2D spring layout visualization
-pos_2d = nx.spring_layout(G, iterations=50, seed=42)
+pos_2d = nx.spring_layout(G, iterations=50)
 
 # Draw edges and nodes
 plt.figure(figsize=(10, 8))
@@ -327,7 +327,7 @@ scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20,
                                 node_color=df_corpus["svd_entropy"], 
                                 cmap='coolwarm', alpha=0.8)
 plt.colorbar(scatter, label='SVD Entropy')
-plt.title(f'2D KNN Graph (k={k}, t={t})')
+plt.title(f'2D KNN Graph (k={k}, t={t}, $\\sigma={sigma}$)')
 plt.axis('off')
 plt.show()
 

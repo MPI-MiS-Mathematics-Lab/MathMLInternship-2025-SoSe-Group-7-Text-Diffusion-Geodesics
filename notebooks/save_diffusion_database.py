@@ -131,7 +131,7 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 #%%
-sigma = 1.5  # Adjust sigma as needed for kernel smoothing
+sigma = 1.2  # Adjust sigma as needed for kernel smoothing
 similarity_matrix = np.exp(-kernel_matrix / sigma**2)
 # Set diagonal to zero to avoid self-similarity
 similarity_matrix -= np.diag(np.diag(similarity_matrix))
@@ -253,7 +253,7 @@ for t in tqdm(t_list):
     G = nx.Graph(sparse_knn_graph)
 
     # Create compact 2D spring layout visualization
-    pos_2d = nx.spring_layout(G, iterations=50, seed=42)
+    pos_2d = nx.spring_layout(G, iterations=200)
 
     # Create graph data dictionary
     graph_data = {

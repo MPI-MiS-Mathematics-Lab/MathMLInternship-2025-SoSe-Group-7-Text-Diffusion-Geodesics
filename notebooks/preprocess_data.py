@@ -38,9 +38,10 @@ df_math["domain"] = df_math["url"].str.extract(r"https?://(?:www\.)?([^/]+)")
 
 #%%
 filter_strings = [
+    #"www.quantamagazine.org",
     "wikipedia.org",
     "github.io",
-    "nature.com",
+    #"nature.com",
     #"blogspot.com",
     #"wordpress.com",
 ]
@@ -55,6 +56,7 @@ df_corpus = df_corpus.loc[~df_corpus["url"].duplicated(keep="first")]
 df_corpus = df_corpus.loc[~df_corpus["url"].str.strip("https://").str.strip("http://").str.contains(":", case=False)]
 # Drop text with less than 3000 characters
 df_corpus = df_corpus[df_corpus["text"].str.len() >= 3000]
+df_corpus.shape
 
 #%%
 # Filter df_corpus by a list of strings, keeping rows where at least one string is contained in the "text" column
@@ -91,7 +93,7 @@ df_corpus[df_corpus["topic"].isin(range(len(filter_strings)))]
 
 #%%
 # Save the filtered corpus with topics
-df_corpus[df_corpus["topic"].isin(range(len(filter_strings)))].to_csv("wiki_ml_zeroshot.csv")
+df_corpus[df_corpus["topic"].isin(range(len(filter_strings)))].to_parquet("../data/wiki_ml_zeroshot.parquet")
 
 #%%
 # Model topics with BERTopic - with caching
