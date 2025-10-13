@@ -3,6 +3,7 @@ import requests
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 # Streamlit App
 st.title("Text Diffusion Geodesics")
@@ -38,76 +39,125 @@ path = st.session_state['geodesic_path']
 # Create a placeholder for the graph view
 graph_placeholder = st.empty()
 
-# Commented out the interactive graph rendering logic for now
-# def render_graph(path=None):
-#     fig = go.Figure()
-#     for edge in graph_data['edges']:
-#         x_coords = [graph_data['nodes'][str(edge[0])]['x'], graph_data['nodes'][str(edge[1])]['x']]
-#         y_coords = [graph_data['nodes'][str(edge[0])]['y'], graph_data['nodes'][str(edge[1])]['y']]
-#         fig.add_trace(go.Scatter(x=x_coords, y=y_coords, mode='lines', line=dict(color='gray', width=0.5), showlegend=False))
-#
-#     for node_id, node in graph_data['nodes'].items():
-#         fig.add_trace(go.Scatter(
-#             x=[node['x']],
-#             y=[node['y']],
-#             mode='markers',
-#             marker=dict(size=10, color=node['svd_entropy'], colorscale='bluered'),
-#             name=f"Node {node_id}",
-#             text=f"Text: {node['text'][:100]}...",
-#             showlegend=False
-#         ))
-#
-#     if path:
-#         for i in range(len(path) - 1):
-#             start_node = graph_data['nodes'][str(path[i])]
-#             end_node = graph_data['nodes'][str(path[i + 1])]
-#             fig.add_trace(go.Scatter(
-#                 x=[start_node['x'], end_node['x']],
-#                 y=[start_node['y'], end_node['y']],
-#                 mode='lines',
-#                 line=dict(color='blue', width=4, dash='solid'),
-#                 name='Geodesic Path',
-#                 showlegend=False
-#             ))
-#
-#     graph_placeholder.plotly_chart(fig)
+# Re-enable the interactive graph rendering logic with blue-red colorscale
+@st.cache_data
+def create_graph_figure(_graph_data, path=None):
+    """Create the graph figure - cached to avoid re-rendering"""
+    fig = go.Figure()
+    
+    # Batch all edges into a single trace for better performance
+    edge_x = []
+    edge_y = []
+    for edge in _graph_data['edges']:
+        x0, y0 = _graph_data['nodes'][str(edge[0])]['x'], _graph_data['nodes'][str(edge[0])]['y']
+        x1, y1 = _graph_data['nodes'][str(edge[1])]['x'], _graph_data['nodes'][str(edge[1])]['y']
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+    
+    fig.add_trace(go.Scatter(
+        x=edge_x, y=edge_y,
+        mode='lines',
+        line=dict(color='gray', width=0.5),
+        hoverinfo='none',
+        showlegend=False
+    ))
 
-# Cache the graph plot in session state
-if 'cached_graph_plot' not in st.session_state or st.session_state['cached_diffusion_time'] != diffusion_time:
-    fig, ax = plt.subplots(figsize=(10, 8))
-    for edge in graph_data['edges']:
-        x_coords = [graph_data['nodes'][str(edge[0])]['x'], graph_data['nodes'][str(edge[1])]['x']]
-        y_coords = [graph_data['nodes'][str(edge[0])]['y'], graph_data['nodes'][str(edge[1])]['y']]
-        ax.plot(x_coords, y_coords, color='gray', linewidth=0.5, alpha=0.5)
+    # Convert nodes to arrays for efficient plotting
+    node_ids = list(_graph_data['nodes'].keys())
+    node_x = [_graph_data['nodes'][nid]['x'] for nid in node_ids]
+    node_y = [_graph_data['nodes'][nid]['y'] for nid in node_ids]
+    node_colors = [_graph_data['nodes'][nid]['svd_entropy'] for nid in node_ids]
+    node_texts = [_graph_data['nodes'][nid]['text'][:100] + '...' for nid in node_ids]
+    
+    fig.add_trace(go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode='markers',
+        marker=dict(size=8, color=node_colors, colorscale='RdBu_r'),
+        text=node_texts,
+        customdata=node_ids,
+        hovertemplate='<b>Node %{customdata}</b><br>Text: %{text}<extra></extra>',
+        showlegend=False
+    ))
 
-    # Optimize node plotting by using a single scatter plot
-    node_positions = np.array([[node['x'], node['y']] for node in graph_data['nodes'].values()])
-    node_colors = [node['svd_entropy'] for node in graph_data['nodes'].values()]
-    scatter = ax.scatter(node_positions[:, 0], node_positions[:, 1], s=20, c=node_colors, cmap='coolwarm', alpha=0.8)
-
-    # Highlight the geodesic path if available
     if path:
+        # Batch geodesic path into a single trace
+        path_x = []
+        path_y = []
         for i in range(len(path) - 1):
-            start_node = graph_data['nodes'][str(path[i])]
-            end_node = graph_data['nodes'][str(path[i + 1])]
-            ax.plot(
-                [start_node['x'], end_node['x']],
-                [start_node['y'], end_node['y']],
-                color='red', linewidth=3, alpha=1.0, label='Geodesic Path' if i == 0 else ""
-            )
-        # Highlight start and end nodes
-        start_node = graph_data['nodes'][str(path[0])]
-        end_node = graph_data['nodes'][str(path[-1])]
-        ax.scatter(start_node['x'], start_node['y'], s=150, c='green', marker='o', label='Start Node', edgecolors='black', linewidth=1.5)
-        ax.scatter(end_node['x'], end_node['y'], s=150, c='blue', marker='s', label='End Node', edgecolors='black', linewidth=1.5)
+            start_node = _graph_data['nodes'][str(path[i])]
+            end_node = _graph_data['nodes'][str(path[i + 1])]
+            path_x.extend([start_node['x'], end_node['x'], None])
+            path_y.extend([start_node['y'], end_node['y'], None])
+        
+        fig.add_trace(go.Scatter(
+            x=path_x, y=path_y,
+            mode='lines',
+            line=dict(color='green', width=4),
+            name='Geodesic Path',
+            showlegend=True
+        ))
+        
+        # Emphasize nodes on geodesic path
+        path_node_x = [_graph_data['nodes'][str(nid)]['x'] for nid in path]
+        path_node_y = [_graph_data['nodes'][str(nid)]['y'] for nid in path]
+        path_node_texts = [_graph_data['nodes'][str(nid)]['text'][:100] + '...' for nid in path]
+        path_node_entropies = [_graph_data['nodes'][str(nid)]['svd_entropy'] for nid in path]
+        
+        # Highlight all path nodes
+        fig.add_trace(go.Scatter(
+            x=path_node_x,
+            y=path_node_y,
+            mode='markers',
+            marker=dict(size=15, color=path_node_entropies, colorscale='RdBu_r', 
+                       line=dict(color='black', width=2)),
+            text=path_node_texts,
+            customdata=path,
+            hovertemplate='<b>Path Node %{customdata}</b><br>Text: %{text}<extra></extra>',
+            name='Path Nodes',
+            showlegend=True
+        ))
+        
+        # Highlight start node
+        fig.add_trace(go.Scatter(
+            x=[path_node_x[0]],
+            y=[path_node_y[0]],
+            mode='markers',
+            marker=dict(size=20, color='green', symbol='star', 
+                       line=dict(color='black', width=2)),
+            text=[path_node_texts[0]],
+            customdata=[path[0]],
+            hovertemplate='<b>Start Node %{customdata}</b><br>Text: %{text}<extra></extra>',
+            name='Start Node',
+            showlegend=True
+        ))
+        
+        # Highlight end node
+        fig.add_trace(go.Scatter(
+            x=[path_node_x[-1]],
+            y=[path_node_y[-1]],
+            mode='markers',
+            marker=dict(size=20, color='blue', symbol='square', 
+                       line=dict(color='black', width=2)),
+            text=[path_node_texts[-1]],
+            customdata=[path[-1]],
+            hovertemplate='<b>End Node %{customdata}</b><br>Text: %{text}<extra></extra>',
+            name='End Node',
+            showlegend=True
+        ))
+    
+    fig.update_layout(
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        hovermode='closest',
+        plot_bgcolor='white'
+    )
 
-    ax.set_title("Static Graph View with Geodesic Path")
-    ax.axis('off')
-    ax.legend()
-    st.session_state['cached_graph_plot'] = fig
+    return fig
 
-# Display the cached plot
-st.pyplot(st.session_state['cached_graph_plot'])
+# Create and cache the graph figure
+graph_fig = create_graph_figure(graph_data, tuple(path) if path else None)
+graph_placeholder.plotly_chart(graph_fig, use_container_width=True)
 
 
 # Document List with Search Bar
@@ -125,13 +175,14 @@ num_results = st.selectbox("Number of Results to Display", [5, 10, 20, 50])
 # Cache search results for entropy range and query in session state
 search_cache_key = f"search_{query}_{min_entropy}_{max_entropy}"
 if st.button("Search"):
-    if search_cache_key not in st.session_state:
-        search_response = requests.get(
-            f"http://127.0.0.1:5000/search?query={query}&min_entropy={min_entropy}&max_entropy={max_entropy}"
-        )
-        st.session_state[search_cache_key] = search_response.json()
+    search_response = requests.get(
+        f"http://127.0.0.1:5000/search?query={query}&min_entropy={min_entropy}&max_entropy={max_entropy}"
+    )
+    st.session_state[search_cache_key] = search_response.json()
+    st.session_state['last_search_key'] = search_cache_key
 
-search_results = st.session_state.get(search_cache_key, [])
+# Get search results from cache
+search_results = st.session_state.get(st.session_state.get('last_search_key', search_cache_key), [])
 
 # Display cached search results with the selected number of results
 if search_results:
@@ -153,21 +204,28 @@ if st.button("Find Geodesic Path"):
 
     if 'error' in path_data:
         st.error(path_data['error'])
-        path = []  # Clear path if there's an error
+        st.session_state['geodesic_path'] = []  # Clear path if there's an error
     else:
         st.write("**Path Length:**", path_data['length'])
-        path = path_data['path']
+        st.session_state['geodesic_path'] = path_data['path']  # Update cached path
+        # Force re-render by clearing graph cache
+        st.cache_data.clear()
+        st.rerun()
 
-    # Refresh graph data and re-render immediately
-    response = requests.get(f"http://127.0.0.1:5000/graph?diffusion_time={diffusion_time}")
-    graph_data = response.json()
-    # render_graph(path=path)  # Commented out the interactive graph rendering
-
-    # Display the path as an interactive list of documents
+# Display the geodesic path as an interactive list of documents (like search results)
+if st.session_state.get('geodesic_path'):
     st.subheader("Documents in Geodesic Path")
-    for node_id in path:
+    for idx, node_id in enumerate(st.session_state['geodesic_path']):
         node = graph_data['nodes'][str(node_id)]
-        header = f"Node {node_id}: {node['text'][:100]}..."  # Add first 100 characters to header
+        # Format similar to search results
+        position_label = ""
+        if idx == 0:
+            position_label = " (START)"
+        elif idx == len(st.session_state['geodesic_path']) - 1:
+            position_label = " (END)"
+        
+        header = f"Step {idx + 1}{position_label} - Node {node_id}: {node['text'][:100]}..."
         with st.expander(header):
             st.write("**SVD Entropy:**", node['svd_entropy'])
             st.write("**Text:**", node['text'])
+

@@ -71,6 +71,10 @@ plot_markov_graph_spring_layout = False
 corpus_file = "../data/wiki_ml_zeroshot.parquet"
 df_corpus = pd.read_parquet(corpus_file)
 
+#%%
+# 3000 characters minimum. ca. 1 a4 page
+df_corpus = df_corpus.loc[(~df_corpus["url"].duplicated(keep="first")) & (df_corpus["text"].str.len() >= 3000)]
+print(df_corpus.shape)
 
 #%%
 # Create TF-IDF vectorizer

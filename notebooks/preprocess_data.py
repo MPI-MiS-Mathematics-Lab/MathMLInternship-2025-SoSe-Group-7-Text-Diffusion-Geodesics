@@ -53,6 +53,8 @@ df_corpus = df_corpus.loc[~df_corpus["url"].duplicated(keep="first")]
 #df_corpus["publication_info"] = df_corpus["url"].str.extract(r"(?:publication|machine-learning-glossary-and-terms)/(.*)")
 # for wikipedia, filter out non article content
 df_corpus = df_corpus.loc[~df_corpus["url"].str.strip("https://").str.strip("http://").str.contains(":", case=False)]
+# Drop text with less than 3000 characters
+df_corpus = df_corpus[df_corpus["text"].str.len() >= 3000]
 
 #%%
 # Filter df_corpus by a list of strings, keeping rows where at least one string is contained in the "text" column

@@ -64,22 +64,39 @@ def search_documents():
         (min_entropy, max_entropy)
     ).fetchall()
 
-    # Compute cosine similarity between query and document embeddings
-    results = []
+    if not documents:
+        conn.close()
+        return jsonify([])
+
+    # Extract embeddings and metadata
+    doc_embeddings = []
+    doc_metadata = []
     for doc in documents:
         doc_embedding = np.array(json.loads(doc['embedding']))
-        similarity = np.dot(query_embedding, doc_embedding) / (
-            np.linalg.norm(query_embedding) * np.linalg.norm(doc_embedding)
-        )
-        results.append({
+        doc_embeddings.append(doc_embedding)
+        doc_metadata.append({
             'id': doc['id'],
             'text': doc['text'],
             'url': doc['url'],
-            'svd_entropy': doc['svd_entropy'],
-            'similarity': similarity
+            'svd_entropy': doc['svd_entropy']
         })
 
-    # Sort results by similarity
+    # Vectorized cosine similarity computation
+    doc_embeddings = np.vstack(doc_embeddings)  # Shape: (n_docs, embedding_dim)
+    
+    # Normalize embeddings
+    query_norm = query_embedding / np.linalg.norm(query_embedding)
+    doc_norms = doc_embeddings / np.linalg.norm(doc_embeddings, axis=1, keepdims=True)
+    
+    # Compute all similarities at once
+    similarities = np.dot(doc_norms, query_norm)
+
+    # Combine with metadata and sort
+    results = []
+    for i, metadata in enumerate(doc_metadata):
+        metadata['similarity'] = float(similarities[i])
+        results.append(metadata)
+
     results = sorted(results, key=lambda x: x['similarity'], reverse=True)
     conn.close()
 
