@@ -38,7 +38,7 @@ df_math["domain"] = df_math["url"].str.extract(r"https?://(?:www\.)?([^/]+)")
 
 #%%
 filter_strings = [
-    #"www.quantamagazine.org",
+    "quantamagazine.org",
     "wikipedia.org",
     "github.io",
     #"nature.com",
@@ -65,11 +65,15 @@ filter_strings = [
     "statistics", 
     "probability theory",
     "information theory",
-    "machine learning", 
+    "data science",
+    "machine learning",
+    "artificial intelligence",
     "deep learning",
     "statistical learning",
     "reinforcement learning",
-    "neural network"
+    "neural network",
+    "computer vision",
+    "natural language processing",
 ]
 pattern = '|'.join(re.escape(s) for s in filter_strings)  # Create regex pattern from the list
 df_corpus = df_corpus[df_corpus["text"].str.contains(pattern, case=False, na=False)]

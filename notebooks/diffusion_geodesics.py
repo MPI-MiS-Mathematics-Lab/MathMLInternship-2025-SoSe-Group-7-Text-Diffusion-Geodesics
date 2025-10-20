@@ -146,42 +146,98 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 #%%
-sigma = 1.1  # Adjust sigma as needed for kernel smoothing
-similarity_matrix = np.exp(-kernel_matrix / sigma**2)
-# Set diagonal to zero to avoid self-similarity
-similarity_matrix -= np.diag(np.diag(similarity_matrix))
-print(similarity_matrix.min(), similarity_matrix.max())
-plt.hist(similarity_matrix.flatten(), bins=100)
-plt.xlabel('Similarity Value')
-plt.ylabel('Frequency')
-plt.title('Histogram of Similarity Values')
-plt.grid(True, alpha=0.3)
-plt.show()
+@njit(parallel=True)
+def compute_diffusion_distances(M_t, stationary_distribution):
+    n = M_t.shape[0]
+    diffusion_distances = np.zeros((n, n))
+    for i in prange(n):
+        for j in range(i + 1, n):
+            diff = M_t[i] - M_t[j]
+            distance = np.sum((diff**2) / stationary_distribution)
+            diffusion_distances[i, j] = distance
+            diffusion_distances[j, i] = distance  # Symmetric matrix
+    return diffusion_distances
+
+# Define parameter grids
+sigma_values = [1.0, 1.2, 1.3, 1.4, 1.5]
+t_values = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+
+# Store results for grid plotting
+grid_results = {}
+
+for sigma in tqdm(sigma_values, desc="Sigma"):
+    similarity_matrix = np.exp(-kernel_matrix / sigma**2)
+    similarity_matrix -= np.diag(np.diag(similarity_matrix))
+    
+    # Create diffusion matrix
+    markov_chain = similarity_matrix / similarity_matrix.sum(axis=0)
+    
+    # Compute eigendecomposition
+    eigenvalues, eigenvectors = np.linalg.eig(markov_chain.T)
+    eigenvalues, eigenvectors = np.real(eigenvalues), np.real(eigenvectors)
+    eigv_inv = scipy.linalg.pinv(eigenvectors)
+    
+    # Sort eigenvalues and eigenvectors in descending order
+    sorted_indices = np.argsort(np.abs(eigenvalues))[::-1]
+    eigenvalues = eigenvalues[sorted_indices]
+    eigenvectors = eigenvectors[:, sorted_indices]
+    eigv_inv = eigv_inv[sorted_indices, :]
+    
+    for t in t_values:
+        if t % 1 != 0:
+            eigv_power = np.diag(np.real(np.complex128(eigenvalues[:n_markov_components])**t))
+        else:
+            eigv_power = np.diag(eigenvalues[:n_markov_components])**t
+        
+        M_t = eigv_inv[:n_markov_components].T @ eigv_power @ eigenvectors[:, :n_markov_components].T
+        M_t = M_t.T
+        
+        # Compute pairwise diffusion distances
+        diffusion_distances = compute_diffusion_distances(M_t, eigenvectors[:, 0]**2)
+        diffusion_distances = np.sqrt(diffusion_distances)
+        
+        # Create KNN graph
+        k = 5
+        n = diffusion_distances.shape[0]
+        knn_graph = np.zeros((n, n))
+        
+        for i in range(n):
+            distances = diffusion_distances[i]
+            nearest_indices = np.argsort(distances)[1:k+1]
+            knn_graph[i, nearest_indices] = distances[nearest_indices]
+            knn_graph[nearest_indices, i] = distances[nearest_indices]
+        
+        sparse_knn_graph = csr_matrix(knn_graph)
+        G = nx.Graph(sparse_knn_graph)
+        pos_2d = nx.spring_layout(G, iterations=50)
+        
+        # Store results
+        grid_results[(sigma, t)] = (G, pos_2d)
 
 #%%
-# create diffusion matrix
-markov_chain = similarity_matrix / similarity_matrix.sum(axis=0)
+# Create grid plot
+fig, axes = plt.subplots(len(t_values), len(sigma_values), figsize=(len(sigma_values)*6, len(t_values)*6))
 
-# compute eigendecomposition
-eigenvalues, eigenvectors = np.linalg.eig(
-    markov_chain.T)
-eigenvalues, eigenvectors = np.real(eigenvalues), np.real(eigenvectors)
-eigv_inv = scipy.linalg.pinv(eigenvectors)
+for i, t in enumerate(t_values):
+    for j, sigma in enumerate(sigma_values):
+        ax = axes[i, j]
+        G, pos_2d = grid_results[(sigma, t)]
+        
+        nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray', ax=ax)
+        scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20, 
+                                        node_color=df_corpus["svd_entropy"], 
+                                        cmap='coolwarm', alpha=0.8, ax=ax)
+        
+        if i == 0:
+            ax.set_title(f'$\\sigma={sigma}$', fontsize=14, pad=10)
+        if j == 0:
+            ax.text(-0.15, 0.5, f't={t}', fontsize=14, transform=ax.transAxes, 
+                   rotation=90, verticalalignment='center', horizontalalignment='right')
+        ax.axis('off')
 
-# Sort eigenvalues and eigenvectors in descending order
-sorted_indices = np.argsort(np.abs(eigenvalues))[::-1]
-eigenvalues = eigenvalues[sorted_indices]
-eigenvectors = eigenvectors[:, sorted_indices]
-eigv_inv = eigv_inv[sorted_indices, :]
-
-#%%
-# Plot eigenvalues to determine the number of components to use
-plt.figure(figsize=(10, 6))
-plt.plot(eigenvalues[1:])
-plt.xlabel('Component Index')
-plt.ylabel('Eigenvalue')
-plt.title('Eigenvalues vs Component Index')
-plt.grid(True)
+plt.tight_layout()
+fig.colorbar(scatter, ax=axes, label='SVD Entropy', shrink=0.8)
+plt.suptitle(f'2D KNN Graph Grid (k={k}): $\\sigma$ vs t', fontsize=16, y=1.002)
 plt.show()
 
 #%%
@@ -222,115 +278,6 @@ for t in tqdm(t_values):
         plt.show()
 
 #%%
-# find points lying on the geodesic path, i.e. interpolating on the manifold
-# - got to the nearest point that is still closer to the reference point than the current point?
-
-# - build k nearest neighbors graph with small k, large enough to connect
-# - find shortest path with A*
-
-# Calculate pairwise diffusion distances using einsum
-
-
-# Choose a diffusion time t 1, 1.5, 2, 2.5
-# higher diffusion time will seperate high entropy points more from low entropy points,
-# results in longer paths between points with low and high entropy
-t = 1.2
-# Compute the diffused Markov matrix for time t
-#M_t = eigv_inv[:n_markov_components].T @ np.diag(eigenvalues[:n_markov_components])**t @ eigenvectors[:, :n_markov_components].T
-
-if t % 1 != 0:
-    # only raise positive eigenvalues to power t
-    #eigv_power = np.diag(np.where(eigenvalues[:n_markov_components] > 0, eigenvalues[:n_markov_components]**t, eigenvalues[:n_markov_components]))
-    # Use fractional matrix power for non-integer t
-    #eigv_power = np.abs(fractional_matrix_power(np.diag(eigenvalues[:n_markov_components]), t))
-    # use real part of fractional matrix power to avoid complex numbers
-    #eigv_power = np.real(fractional_matrix_power(np.diag(eigenvalues[:n_markov_components]), t))
-    eigv_power = np.diag(np.real(np.complex128(eigenvalues[:n_markov_components])**t))
-else:
-    eigv_power = np.diag(eigenvalues[:n_markov_components])**t
-M_t = eigv_inv[:n_markov_components].T @ eigv_power @ eigenvectors[:, :n_markov_components].T
-M_t = M_t.T
-print(M_t.sum(axis=1), M_t.min(), M_t.max())
-
-#%%
-x, y, z = M_t[:, 1:4][:, 0], M_t[:, 1:4][:, 1], M_t[:, 1:4][:, 2]
-plt.figure(figsize=(10, 8))
-plt.scatter(x, y, alpha=0.6, s=30)
-plt.xlabel('First Diffusion Component')
-plt.ylabel('Second Diffusion Component')
-plt.title(f'2D Scatter Plot of Diffusion Map Embedding (t={t})')
-plt.grid(True, alpha=0.3)
-plt.show()
-
-#%%
-@njit(parallel=True)
-def compute_diffusion_distances(M_t, stationary_distribution):
-    n = M_t.shape[0]
-    diffusion_distances = np.zeros((n, n))
-    for i in prange(n):
-        for j in range(i + 1, n):
-            diff = M_t[i] - M_t[j]
-            distance = np.sum((diff**2) / stationary_distribution)
-            diffusion_distances[i, j] = distance
-            diffusion_distances[j, i] = distance  # Symmetric matrix
-    return diffusion_distances
-
-# Compute pairwise diffusion distances
-diffusion_distances = compute_diffusion_distances(M_t, eigenvectors[:, 0]**2)
-diffusion_distances = np.sqrt(diffusion_distances)  # Take square root to get distances
-
-# Print a sample diffusion distance
-print(f"Sample diffusion distance: {diffusion_distances[0, 1]}")
-
-plt.figure(figsize=(10, 8))
-plt.imshow(diffusion_distances, cmap='viridis')
-plt.colorbar(label='Diffusion Distance')
-plt.title(f'Pairwise Diffusion Distances (t={t})')
-plt.show()
-
-#%%
-# Create KNN graph
-k = 5
-n = diffusion_distances.shape[0]
-knn_graph = np.zeros((n, n))
-
-# For each point, find its k nearest neighbors
-for i in range(n):
-    # Get distances from point i to all other points
-    distances = diffusion_distances[i]
-    # Find indices of k nearest neighbors (excluding itself)
-    nearest_indices = np.argsort(distances)[1:k+1]
-    # Add edges to KNN graph
-    knn_graph[i, nearest_indices] = distances[nearest_indices]
-    knn_graph[nearest_indices, i] = distances[nearest_indices]  # Make the graph undirected
-
-# Convert to sparse matrix for efficiency
-sparse_knn_graph = csr_matrix(knn_graph)
-
-# Create a NetworkX graph
-G = nx.Graph(sparse_knn_graph)
-
-#%%
-# Create compact 2D spring layout visualization
-pos_2d = nx.spring_layout(G, iterations=50)
-
-# Draw edges and nodes
-plt.figure(figsize=(10, 8))
-nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray')
-plt.title(f'2D KNN Graph (k={k}, t={t})')
-plt.axis('off')
-plt.show()
-
-plt.figure(figsize=(10, 8))
-nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray')
-scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20, 
-                                node_color=df_corpus["svd_entropy"], 
-                                cmap='coolwarm', alpha=0.8)
-plt.colorbar(scatter, label='SVD Entropy')
-plt.title(f'2D KNN Graph (k={k}, t={t}, $\\sigma={sigma}$)')
-plt.axis('off')
-plt.show()
-
 plt.figure(figsize=(10, 8))
 nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray')
 scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20, 

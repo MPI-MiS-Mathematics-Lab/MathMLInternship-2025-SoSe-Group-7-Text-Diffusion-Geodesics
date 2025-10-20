@@ -41,8 +41,11 @@ graph_placeholder = st.empty()
 
 # Re-enable the interactive graph rendering logic with blue-red colorscale
 @st.cache_data
-def create_graph_figure(_graph_data, path=None):
+def create_graph_figure(diffusion_time, path_tuple=None):
     """Create the graph figure - cached to avoid re-rendering"""
+    # Get graph data from session state
+    _graph_data = st.session_state['graph_data']
+    
     fig = go.Figure()
     
     # Batch all edges into a single trace for better performance
@@ -80,7 +83,8 @@ def create_graph_figure(_graph_data, path=None):
         showlegend=False
     ))
 
-    if path:
+    if path_tuple:
+        path = list(path_tuple)
         # Batch geodesic path into a single trace
         path_x = []
         path_y = []
@@ -155,8 +159,8 @@ def create_graph_figure(_graph_data, path=None):
 
     return fig
 
-# Create and cache the graph figure
-graph_fig = create_graph_figure(graph_data, tuple(path) if path else None)
+# Create and cache the graph figure with proper cache keys
+graph_fig = create_graph_figure(diffusion_time, tuple(path) if path else None)
 graph_placeholder.plotly_chart(graph_fig, use_container_width=True)
 
 

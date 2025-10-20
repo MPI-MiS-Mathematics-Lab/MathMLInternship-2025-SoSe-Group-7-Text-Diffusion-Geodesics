@@ -131,7 +131,7 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 #%%
-sigma = 1.2  # Adjust sigma as needed for kernel smoothing
+sigma = 1.4  # Adjust sigma as needed for kernel smoothing
 similarity_matrix = np.exp(-kernel_matrix / sigma**2)
 # Set diagonal to zero to avoid self-similarity
 similarity_matrix -= np.diag(np.diag(similarity_matrix))
@@ -183,11 +183,19 @@ c.execute('''CREATE TABLE documents (
 
 for i in tqdm(range(len(df_corpus))):
     text = df_corpus['text'].iloc[i]
-    embedding = embedding_model.encode(text).tolist()
+    url = df_corpus["url"].iloc[i]
+    
+    # Split URL into tokens and concatenate with text for embedding
+    # Remove protocol (http://, https://) and split by common separators
+    url_tokens = re.sub(r'https?://', '', url)
+    url_tokens = re.sub(r'[/_\-.]', ' ', url_tokens)
+    text_with_url = f"{url_tokens} {text}"
+    
+    embedding = embedding_model.encode(text_with_url).tolist()
     c.execute('INSERT INTO documents (id, text, url, svd_entropy, topic, embedding) VALUES (?, ?, ?, ?, ?, ?)',
               (i,
                text, 
-               df_corpus["url"].iloc[i], 
+               url, 
                df_corpus["svd_entropy"].iloc[i], 
                df_corpus["topic"].iloc[i], 
                json.dumps(embedding)))
@@ -253,7 +261,7 @@ for t in tqdm(t_list):
     G = nx.Graph(sparse_knn_graph)
 
     # Create compact 2D spring layout visualization
-    pos_2d = nx.spring_layout(G, iterations=200)
+    pos_2d = nx.spring_layout(G, iterations=50)
 
     # Create graph data dictionary
     graph_data = {
