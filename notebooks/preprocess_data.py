@@ -74,11 +74,13 @@ filter_strings = [
     "neural network",
     "computer vision",
     "natural language processing",
+    "dimensionality reduction",
+    "digital signal processing",
+    "time series analysis",
 ]
-pattern = '|'.join(re.escape(s) for s in filter_strings)  # Create regex pattern from the list
-df_corpus = df_corpus[df_corpus["text"].str.contains(pattern, case=False, na=False)]
-df_corpus = df_corpus.loc[~df_corpus["url"].duplicated(keep="first")]
-print(df_corpus.shape)
+#pattern = '|'.join(re.escape(s) for s in filter_strings)  # Create regex pattern from the list
+#df_corpus = df_corpus[df_corpus["text"].str.contains(pattern, case=False, na=False)]
+#df_corpus = df_corpus.loc[~df_corpus["url"].duplicated(keep="first")]
 
 #%%
 # zero shot topics
@@ -94,6 +96,7 @@ topics, _ = topic_model.fit_transform(df_corpus["text"].tolist())
 # filter corpus by topics
 df_corpus["topic"] = topics
 df_corpus[df_corpus["topic"].isin(range(len(filter_strings)))]
+print(df_corpus.shape)
 
 #%%
 # Save the filtered corpus with topics

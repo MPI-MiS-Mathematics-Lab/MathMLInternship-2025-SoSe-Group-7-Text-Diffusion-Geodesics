@@ -131,7 +131,7 @@ plt.grid(True, alpha=0.3)
 plt.show()
 
 #%%
-sigma = 1.4  # Adjust sigma as needed for kernel smoothing
+sigma = 1.2  # Adjust sigma as needed for kernel smoothing
 similarity_matrix = np.exp(-kernel_matrix / sigma**2)
 # Set diagonal to zero to avoid self-similarity
 similarity_matrix -= np.diag(np.diag(similarity_matrix))
