@@ -27,3 +27,4 @@ __pycache__
 
 openwebmath_lziv_distance.py
 !data/wiki_ml_zeroshot.parquet
+*.safetensors
