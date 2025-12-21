@@ -24,13 +24,13 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from transformers import AutoTokenizer, AutoModelForMaskedLM, TrainingArguments, Trainer
 from transformers import DataCollatorForLanguageModeling
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import random
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import json
 
 
@@ -82,7 +82,8 @@ class CurriculumSampler:
                  curriculum_schedule: str = "linear",
                  hard_emphasis: float = 0.7,
                  initial_concentration: float = 5.0,
-                 final_concentration: float = 2.0):
+                 final_concentration: float = 2.0,
+                 train_indices: Optional[np.ndarray] = None):
         """
         Args:
             markov_chain: Transition probability matrix (n_docs x n_docs), after diffusion
@@ -95,11 +96,13 @@ class CurriculumSampler:
             hard_emphasis: Controls how quickly distribution shifts toward hard docs (0.5-0.9)
             initial_concentration: Beta distribution concentration at start (higher = more peaked on easy)
             final_concentration: Beta distribution concentration at end (lower = more spread out)
+            train_indices: Indices of documents to sample from (to exclude validation set).
+                          If None, all documents are used (for backward compatibility).
         """
         self.markov_chain = markov_chain
         self.stationary_distribution = stationary_distribution
         self.centrality = stationary_distribution  # Alias for clarity
-        self.n_docs = len(stationary_distribution)
+        self.n_docs_total = len(stationary_distribution)  # Total docs including validation
         self.n_epochs = n_epochs
         self.batch_size = batch_size
         self.path_depth_min = path_depth_min
@@ -109,12 +112,28 @@ class CurriculumSampler:
         self.initial_concentration = initial_concentration
         self.final_concentration = final_concentration
         
-        # Sort documents by centrality (high to low = easy to hard)
-        # Index 0 = easiest (highest centrality), Index n-1 = hardest (lowest centrality)
-        self.centrality_order = np.argsort(stationary_distribution)[::-1]  # Descending
+        # Store train indices for filtering - convert to set for O(1) lookup
+        if train_indices is not None:
+            self.train_indices = np.array(train_indices)
+            self.train_indices_set = set(train_indices)
+        else:
+            # Backward compatibility: use all docs
+            self.train_indices = np.arange(self.n_docs_total)
+            self.train_indices_set = set(range(self.n_docs_total))
+        
+        self.n_docs = len(self.train_indices)  # Number of training docs
+        
+        # Sort TRAINING documents by centrality (high to low = easy to hard)
+        # Filter to only include training indices, then sort
+        train_centralities = [(idx, stationary_distribution[idx]) for idx in self.train_indices]
+        train_centralities.sort(key=lambda x: x[1], reverse=True)  # Descending by centrality
+        
+        # centrality_order now only contains training document indices
+        self.centrality_order = np.array([idx for idx, _ in train_centralities])
         
         # Create rank array: rank[doc_id] = position in difficulty order (0=easiest)
-        self.difficulty_rank = np.zeros(self.n_docs, dtype=int)
+        # Only defined for training documents
+        self.difficulty_rank = np.full(self.n_docs_total, -1, dtype=int)  # -1 for non-training docs
         for rank, doc_id in enumerate(self.centrality_order):
             self.difficulty_rank[doc_id] = rank
         
@@ -148,14 +167,14 @@ class CurriculumSampler:
         else:
             adjusted_progress = progress
         
-        # Interpolate concentration (decreases over time for more spread)
+        # Interpolate concentration (stays relatively stable for smooth bell curves)
         concentration = self.initial_concentration - adjusted_progress * (self.initial_concentration - self.final_concentration)
         
         # Target mean of Beta distribution shifts from easy to hard
-        # Start around 0.1-0.2 (mostly easy), end around 0.6-0.8 (mostly hard)
-        # hard_emphasis controls how far the mean shifts
-        target_mean_start = 0.15  # Early: mostly easy docs
-        target_mean_end = 0.3 + 0.5 * self.hard_emphasis  # End: shifted toward hard
+        # Start around 0.35 (slightly favoring easy), end around 0.55-0.65 (slightly favoring hard)
+        # More moderate shift to avoid extreme distributions
+        target_mean_start = 0.35  # Early: slightly favoring easy docs
+        target_mean_end = 0.45 + 0.25 * self.hard_emphasis  # End: moderate shift toward hard
         
         target_mean = target_mean_start + adjusted_progress * (target_mean_end - target_mean_start)
         
@@ -165,9 +184,9 @@ class CurriculumSampler:
         alpha = target_mean * concentration
         beta = (1 - target_mean) * concentration
         
-        # Ensure valid parameters (> 0)
-        alpha = max(0.5, alpha)
-        beta = max(0.5, beta)
+        # Ensure valid parameters (> 1 for unimodal bell-shaped distribution)
+        alpha = max(1.1, alpha)
+        beta = max(1.1, beta)
         
         return alpha, beta
     
@@ -212,6 +231,7 @@ class CurriculumSampler:
         """
         Sample a path through the Markov chain starting from start_doc.
         Uses transition probabilities to select next documents.
+        Only samples from training documents (excludes validation set).
         """
         path = [start_doc]
         current_doc = start_doc
@@ -223,11 +243,16 @@ class CurriculumSampler:
             # Avoid self-loops by zeroing out current document
             transition_probs[current_doc] = 0
             
+            # Zero out validation documents - only allow transitions to training docs
+            for i in range(len(transition_probs)):
+                if i not in self.train_indices_set:
+                    transition_probs[i] = 0
+            
             # Normalize
             if transition_probs.sum() > 0:
                 transition_probs = transition_probs / transition_probs.sum()
                 # Sample next document
-                next_doc = np.random.choice(self.n_docs, p=transition_probs)
+                next_doc = np.random.choice(self.n_docs_total, p=transition_probs)
                 path.append(next_doc)
                 current_doc = next_doc
             else:
@@ -331,14 +356,32 @@ class RandomSampler:
     Baseline random sampling strategy for comparison.
     """
     
-    def __init__(self, n_docs: int, batch_size: int = 32):
-        self.n_docs = n_docs
+    def __init__(self, n_docs: int, batch_size: int = 32, train_indices: Optional[np.ndarray] = None):
+        """
+        Args:
+            n_docs: Total number of documents in corpus
+            batch_size: Number of documents per batch
+            train_indices: Indices of documents to sample from (to exclude validation set).
+                          If None, all documents are used (for backward compatibility).
+        """
+        self.n_docs_total = n_docs
         self.batch_size = batch_size
         self.sampled_docs = []
         
+        # Store train indices for sampling
+        if train_indices is not None:
+            self.train_indices = np.array(train_indices)
+        else:
+            # Backward compatibility: use all docs
+            self.train_indices = np.arange(n_docs)
+        
+        self.n_docs = len(self.train_indices)
+        
     def sample_batch(self) -> List[int]:
-        """Sample a random batch of documents."""
-        batch = np.random.choice(self.n_docs, size=self.batch_size, replace=False)
+        """Sample a random batch of documents from training set only."""
+        # Sample indices into train_indices array, then map to actual doc IDs
+        sample_indices = np.random.choice(self.n_docs, size=min(self.batch_size, self.n_docs), replace=False)
+        batch = self.train_indices[sample_indices]
         self.sampled_docs.extend(batch.tolist())
         return batch.tolist()
     
@@ -447,7 +490,7 @@ class CurriculumTrainer:
                 input_ids[i, selection] = self.tokenizer.mask_token_id
             
             # Forward pass with mixed precision
-            with autocast(enabled=self.use_amp):
+            with autocast(device_type=self.device, enabled=self.use_amp):
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -513,7 +556,7 @@ class CurriculumTrainer:
                     selection = torch.flatten(mask_arr[j].nonzero()).tolist()
                     input_ids[j, selection] = self.tokenizer.mask_token_id
                 
-                with autocast(enabled=self.use_amp):
+                with autocast(device_type=self.device, enabled=self.use_amp):
                     outputs = self.model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -609,7 +652,7 @@ class RandomTrainer:
                 input_ids[i, selection] = self.tokenizer.mask_token_id
             
             # Forward pass with mixed precision
-            with autocast(enabled=self.use_amp):
+            with autocast(device_type=self.device, enabled=self.use_amp):
                 outputs = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -671,7 +714,7 @@ class RandomTrainer:
                     selection = torch.flatten(mask_arr[j].nonzero()).tolist()
                     input_ids[j, selection] = self.tokenizer.mask_token_id
                 
-                with autocast(enabled=self.use_amp):
+                with autocast(device_type=self.device, enabled=self.use_amp):
                     outputs = self.model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -763,7 +806,7 @@ def compute_perplexity_by_difficulty(model, tokenizer, df_corpus, centrality,
                 # Compute loss without masking (causal-style for perplexity)
                 labels = input_ids.clone()
                 
-                with autocast(enabled=(device == 'cuda')):
+                with autocast(device_type=device, enabled=(device == 'cuda')):
                     outputs = model(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -886,7 +929,7 @@ def compute_masked_prediction_accuracy(model, tokenizer, df_corpus, indices,
             input_ids[mask_arr] = tokenizer.mask_token_id
             
             # Get predictions
-            with autocast(enabled=(device == 'cuda')):
+            with autocast(device_type=device, enabled=(device == 'cuda')):
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             
             predictions = outputs.logits.argmax(dim=-1)
@@ -1165,92 +1208,3 @@ def plot_training_comparison(curriculum_trainer: CurriculumTrainer,
         val_improvement = (random_trainer.val_losses[-1] - curriculum_trainer.val_losses[-1]) / random_trainer.val_losses[-1] * 100
         print(f"Val Loss Improvement (Curriculum vs Random): {val_improvement:.2f}%")
     print("="*60)
-
-
-#%%
-# Example usage and main training loop
-if __name__ == "__main__":
-    # Load data (assumes df_corpus and markov_chain are already computed)
-    # This would come from the diffusion_geodesics.py pipeline
-    
-    print("Loading corpus and computing diffusion geometry...")
-    
-    # Example parameters
-    BATCH_SIZE = 16
-    N_EPOCHS = 5
-    PATH_DEPTH_MIN = 2
-    PATH_DEPTH_MAX = 4
-    LEARNING_RATE = 5e-5
-    MODEL_NAME = "bert-base-uncased"  # or "distilbert-base-uncased" for faster training
-    
-    # Load tokenizer and model
-    print(f"Loading model: {MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    
-    # Initialize two separate models for fair comparison
-    model_curriculum = AutoModelForMaskedLM.from_pretrained(MODEL_NAME)
-    model_random = AutoModelForMaskedLM.from_pretrained(MODEL_NAME)
-    
-    # Initialize samplers
-    print("Initializing samplers...")
-    curriculum_sampler = CurriculumSampler(
-        markov_chain=markov_chain,
-        svd_entropy=df_corpus['svd_entropy'].values,
-        n_epochs=N_EPOCHS,
-        batch_size=BATCH_SIZE,
-        path_depth_min=PATH_DEPTH_MIN,
-        path_depth_max=PATH_DEPTH_MAX,
-        curriculum_schedule="cosine"
-    )
-    
-    random_sampler = RandomSampler(
-        n_docs=len(df_corpus),
-        batch_size=BATCH_SIZE
-    )
-    
-    # Initialize trainers
-    print("Initializing trainers...")
-    curriculum_trainer = CurriculumTrainer(
-        model=model_curriculum,
-        tokenizer=tokenizer,
-        df_corpus=df_corpus,
-        sampler=curriculum_sampler,
-        learning_rate=LEARNING_RATE,
-        n_epochs=N_EPOCHS
-    )
-    
-    random_trainer = RandomTrainer(
-        model=model_random,
-        tokenizer=tokenizer,
-        df_corpus=df_corpus,
-        sampler=random_sampler,
-        learning_rate=LEARNING_RATE,
-        n_epochs=N_EPOCHS
-    )
-    
-    # Train both models
-    print("\n" + "="*60)
-    print("CURRICULUM TRAINING")
-    print("="*60)
-    curriculum_trainer.train()
-    
-    print("\n" + "="*60)
-    print("RANDOM BASELINE TRAINING")
-    print("="*60)
-    random_trainer.train()
-    
-    # Plot comparison
-    plot_training_comparison(
-        curriculum_trainer,
-        random_trainer,
-        save_path='curriculum_vs_random_training.png'
-    )
-    
-    # Save models
-    print("\nSaving models...")
-    model_curriculum.save_pretrained("./models/curriculum_model")
-    model_random.save_pretrained("./models/random_model")
-    
-    print("\nTraining complete!")
-
-#%%

@@ -126,56 +126,54 @@ similarity_matrix -= np.diag(np.diag(similarity_matrix))
 
 print(f"Similarity matrix range: [{similarity_matrix.min():.6f}, {similarity_matrix.max():.6f}]")
 
+#%%
 # Create base Markov matrix
-markov_base = similarity_matrix / (similarity_matrix.sum(axis=0) + 1e-10)
+markov_chain = similarity_matrix / similarity_matrix.sum(axis=0)
 
-print(f"Base Markov chain shape: {markov_base.shape}")
+# Diffuse markov chain
+print("Performing eigendecomposition for diffusion...")
+eigenvalues, eigenvectors = np.linalg.eig(markov_chain.T)
+eigv_inv = scipy.linalg.pinv(eigenvectors)
+eigenvalues, eigenvectors = np.real(eigenvalues), np.real(eigenvectors)
 
-# Eigendecomposition of Markov chain
-print("Computing eigendecomposition...")
-eigenvalues, eigenvectors = np.linalg.eig(markov_base.T)
-eigenvalues = np.real(eigenvalues)
-eigenvectors = np.real(eigenvectors)
-
-# Sort by absolute eigenvalue (descending)
+# Sort eigenvalues and eigenvectors in descending order
 sorted_indices = np.argsort(np.abs(eigenvalues))[::-1]
 eigenvalues = eigenvalues[sorted_indices]
 eigenvectors = eigenvectors[:, sorted_indices]
+eigv_inv = eigv_inv[sorted_indices, :]
 
-print(f"Top 5 eigenvalues: {eigenvalues[:5]}")
+print("Applying diffusion to Markov chain...")
+# Diffusion time
+t = 1.2
+if t % 1 != 0:
+    eigv_power = np.diag(np.real(np.complex128(eigenvalues[:n_markov_components])**t))
+else:
+    eigv_power = np.diag(eigenvalues[:n_markov_components])**t
+
+M_t = eigv_inv[:n_markov_components].T @ eigv_power @ eigenvectors[:, :n_markov_components].T
+
+markov_chain = np.real(M_t)
+print(f"Markov chain value range: [{markov_chain.min():.6f}, {markov_chain.max():.6f}]")
+print(f"Column sums (should be ~1): mean={markov_chain.sum(axis=0).mean():.6f}, std={markov_chain.sum(axis=0).std():.6f}")
+
+print("Normalizing Markov chain...")
+markov_chain[markov_chain < 0] = 0  # Remove negatives due to numerical errors
+markov_chain = markov_chain / markov_chain.sum(axis=0, keepdims=True)
+print(f"Markov chain value range: [{markov_chain.min():.6f}, {markov_chain.max():.6f}]")
+print(f"Column sums (should be ~1): mean={markov_chain.sum(axis=0).mean():.6f}, std={markov_chain.sum(axis=0).std():.6f}")
+print(f"Base Markov chain shape: {markov_chain.shape}")
 
 # Compute stationary distribution (first eigenvector, normalized)
-stationary_distribution = np.abs(eigenvectors[:, 0])
-stationary_distribution = stationary_distribution / stationary_distribution.sum()
+stationary_distribution = eigenvectors[:, 0] ** 2
 df_corpus["centrality"] = stationary_distribution
 
 print(f"Centrality range: [{stationary_distribution.min():.8f}, {stationary_distribution.max():.8f}]")
 print(f"Mean centrality: {stationary_distribution.mean():.8f}")
 
-# Apply t=1.2 diffusion steps using eigendecomposition
-t = 1.2
-print(f"\nApplying t={t} diffusion steps...")
-eigv_inv = scipy.linalg.pinv(eigenvectors)
-
-# Compute eigenvalue^t (handle potential complex numbers from fractional powers)
-n_components = min(len(eigenvalues), markov_base.shape[0])
-eigv_power = np.diag(np.real(np.complex128(eigenvalues[:n_components])**t))
-
-# Reconstruct diffused Markov matrix: M^t = V * D^t * V^{-1}
-markov_chain = eigenvectors[:, :n_components] @ eigv_power @ eigv_inv[:n_components, :]
-markov_chain = np.real(markov_chain)
-
-# Ensure valid probability matrix (non-negative, columns sum to 1)
-markov_chain = np.maximum(markov_chain, 0)
-markov_chain = markov_chain / (markov_chain.sum(axis=0, keepdims=True) + 1e-10)
-
-print(f"Diffused Markov chain shape: {markov_chain.shape}")
-print(f"Markov chain sum per column (should be ~1): {markov_chain.sum(axis=0).mean():.6f}")
-
 # Visualize centrality distribution
 plt.figure(figsize=(10, 6))
-plt.hist(np.log10(stationary_distribution + 1e-12), bins=50, alpha=0.7, edgecolor='black')
-plt.xlabel('Log10(Centrality)')
+plt.hist(stationary_distribution, bins=50, alpha=0.7, edgecolor='black')
+plt.xlabel('Centrality')
 plt.ylabel('Frequency')
 plt.title('Histogram of Document Centrality (Stationary Distribution)')
 plt.grid(True, alpha=0.3)
@@ -197,9 +195,9 @@ test_sampler = CurriculumSampler(
     path_depth_min=4,
     path_depth_max=15,
     curriculum_schedule="cosine",
-    hard_emphasis=0.7,
-    initial_concentration=5.0,
-    final_concentration=2.0
+    hard_emphasis=0.7,  # Maximum shift toward hard docs
+    initial_concentration=4.0,  # Wider distribution from start
+    final_concentration=3.5     # Even wider at end to cover hard tail
 )
 
 # Visualize Beta distribution progression
@@ -331,16 +329,29 @@ print("\n" + "="*60)
 print("STEP 7: Configuring training")
 print("="*60)
 
+""""
+Batch size: 32
+Epochs: 50
+Path depth: [5, 10]
+Learning rate: 0.0001
+Curriculum schedule: cosine
+Hard emphasis: 0.7
+Beta concentration: 4.0 → 3.5
+Validation ratio: 0.1
+Train set: 6566 documents
+Validation set: 729 documents
+"""
+
 # Training configuration
 BATCH_SIZE = 32  # Smaller batch for experimentation
 N_EPOCHS = 50  # Fewer epochs for faster results
 PATH_DEPTH_MIN = 5
 PATH_DEPTH_MAX = 10
-LEARNING_RATE = 1e-4 # 5e-5
+LEARNING_RATE = 1e-4 #5e-5
 CURRICULUM_SCHEDULE = "cosine"  # Options: "linear", "exponential", "cosine"
-HARD_EMPHASIS = 0.7  # Controls how far distribution shifts toward hard docs
-INITIAL_CONCENTRATION = 5.0  # Beta distribution concentration at start (higher = more peaked on easy)
-FINAL_CONCENTRATION = 2.0  # Beta distribution concentration at end (lower = more spread out)
+HARD_EMPHASIS = 0.7  # Maximum shift toward hard docs (majority of corpus)
+INITIAL_CONCENTRATION = 4.0  # Wider distribution to sample more diversity
+FINAL_CONCENTRATION = 3.5  # Wide spread at end to cover hard tail
 VAL_RATIO = 0.1  # 10% of data for validation
 
 print(f"Batch size: {BATCH_SIZE}")
@@ -358,6 +369,7 @@ print(f"Train set: {len(train_indices)} documents")
 print(f"Validation set: {len(val_indices)} documents")
 
 # Initialize samplers (centrality-based curriculum with Beta distribution)
+# Path based sampling is better than ordered batch sampling with paths
 curriculum_sampler = CurriculumSampler(
     markov_chain=markov_chain,
     stationary_distribution=stationary_distribution,
@@ -368,12 +380,14 @@ curriculum_sampler = CurriculumSampler(
     curriculum_schedule=CURRICULUM_SCHEDULE,
     hard_emphasis=HARD_EMPHASIS,
     initial_concentration=INITIAL_CONCENTRATION,
-    final_concentration=FINAL_CONCENTRATION
+    final_concentration=FINAL_CONCENTRATION,
+    train_indices=train_indices  # Exclude validation documents from sampling
 )
 
 random_sampler = RandomSampler(
     n_docs=len(df_corpus),
-    batch_size=BATCH_SIZE
+    batch_size=BATCH_SIZE,
+    train_indices=train_indices  # Exclude validation documents from sampling
 )
 
 #%%
@@ -527,7 +541,6 @@ results = {
         'learning_rate': LEARNING_RATE,
         'curriculum_schedule': CURRICULUM_SCHEDULE,
         'hard_emphasis': HARD_EMPHASIS,
-        'diffusion_time': t,
         'sigma': sigma,
         'val_ratio': VAL_RATIO,
         'train_size': len(train_indices),
