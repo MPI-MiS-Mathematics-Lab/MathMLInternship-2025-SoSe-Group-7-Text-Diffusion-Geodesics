@@ -1,9 +1,6 @@
-# Knowledge Discovery in Text Corpora with Diffusion Maps and Information Theory
+# Modeling Human Learning as Paths Along Entropy Gradients in Scientific Text Corpora
 
 ## Abstract
-
-> *Modeling Human Learning as Paths Along Entropy Gradients in Scientific Text Corpora*
-> *— Entropy 2026 Conference*
 
 The evolution of scientific language reflects the dynamic nature of human knowledge acquisition, with new concepts emerging at the research frontier characterized by low-probability word combinations carrying high information content. While machine learning frames learning as entropy reduction, human knowledge integration fundamentally involves navigating from general, low-entropy foundational concepts toward specialized, high-entropy advanced material. This work presents a novel information-theoretic framework that models human learning as directed paths along entropy gradients in document spaces, characterized through asymmetric cross-entropy relationships.
 
