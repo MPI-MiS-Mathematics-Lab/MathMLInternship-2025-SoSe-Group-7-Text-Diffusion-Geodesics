@@ -50,4 +50,3 @@ The table below shows a shortest geodesic path through the document manifold, pr
 | 16 | Exploring and Understanding Hyperparameter Tuning — Learners use hyperparameters to achieve better performance... | 0.7651 |
 | 17 | Building recurrent neural networks with the TensorFlow API... | 0.7719 |
 | 18 | LSTMs to Model Physiological Time Series — Harini Suresh, Nicholas Locascio, MIT... | 0.7738 |
-<img alt="spring sigma t" src="figures/spring_sigma_t.png" />
