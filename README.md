@@ -12,4 +12,4 @@ This framework provides a principled information-theoretic approach to modeling 
 
 <img width="900" height="810" alt="geodesic" src="https://github.com/user-attachments/assets/1fc9fddb-9fb7-473a-ab95-e8de92d01db6" />
 
-`<img alt="spring sigma t" src="figures/spring_sigma_t.png" />`
+<img alt="spring sigma t" src="figures/spring_sigma_t.png" />
