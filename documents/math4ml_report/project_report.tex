@@ -14,7 +14,7 @@
 \usepackage{booktabs}
 
 \geometry{margin=1in}
-\title{Knowledge Discovery in Text Corpora with Diffusion Maps and Information Theory}
+\title{Knowledge Discovery in Text Corpora with Computational Linguistics and Information Theory}
 \author{Oliver Kirsten}
 \date{\today}
 
@@ -22,23 +22,21 @@
 
 \maketitle
 
+\begin{abstract}
+For a human to learn a new advanced scientific concept from scratch, the learning path will include materials of increasingly difficult and specialized character. This work establishes a framework based on concepts from computer linguistics and information theory to capture this linguistic complexity with an entropy-based complexity measure for texts, which depends on how typical a document's vocabulary is relative to the general corpus. A cross-entropy based measure is further introduced that simultaneously quantifies document similarity and indicates the direction of complexity increase. This asymmetric measure is then used to find geodesics between simple, introductory documents and complex, advanced ones, potentially uncovering useful progressions of prerequisite documents. The methods are validated qualitatively on an exemplary corpus of machine learning and mathematics related documents.
+\end{abstract}
+
 \section{Introduction}
 
-The analysis of document complexity and semantic relationships in large text corpora requires methods that can capture both the hierarchical nature of knowledge and the asymmetric dependencies between concepts. Traditional text mining approaches treat document similarity as a symmetric problem, failing to model the fundamental asymmetries inherent in knowledge representation and learning pathways.
+As science progresses and new knowledge is generated, scientific language evolves alongside it. Wholly new words emerge, and existing words are used in novel ways to express new ideas. In many fields, the work being done at the absolute frontier of science may be understood only by a handful of people, a fact reflected in the highly specialized terminology that is inaccessible to most readers foreign to the field.
 
-This work introduces a novel framework that combines information-theoretic measures with diffusion geometry to reveal the intrinsic complexity structure of document collections. Our approach leverages cross-entropy kernels to capture asymmetric semantic relationships and SVD-based entropy measures to characterize document complexity along a generality-specialization spectrum.
+Scientific progress is, however, often incremental. Even the most novel ideas build on previously existing ideas and literature, and therefore also on previously existing language. In principle, most advanced ideas should be understandable by any determined individual given sufficient time, even without prior knowledge in the field.
 
-\subsection{Problem Statement}
+Pedagogically, the progression of materials consumed during such a learning journey follows a somewhat predictable trajectory, well exemplified by mathematics and physics education: it proceeds from the most basic concepts through increasingly advanced material, into university-level content (perhaps bridged by popular science texts), and finally to specialized research at the frontier. Along this path, the language of the materials becomes progressively more complex and less accessible to a general reader.
 
-The central challenge in knowledge discovery from text corpora lies in understanding how documents relate to each other not just in terms of topical similarity, but in terms of conceptual complexity and prerequisite relationships. Traditional similarity measures face several critical limitations: symmetric distance metrics cannot capture the directional nature of knowledge dependencies (e.g., that advanced concepts require foundational knowledge but not vice versa), existing complexity measures rely on surface-level features like document length rather than semantic depth, standard clustering approaches fail to preserve the hierarchical structure inherent in knowledge domains, and current methods lack principled approaches for discovering learning pathways between conceptually distant topics.
+The goal of this work is to create a mathematical framework that captures this complexity, or "advancedness," of a document using tools from computer linguistics and information theory. The ultimate aim is to model learning paths as geodesics along an entropy gradient.
 
-These limitations are particularly pronounced in educational and technical domains where understanding complexity gradients and conceptual dependencies is crucial for effective knowledge organization.
-
-\subsection{Proposed Approach}
-
-Our framework addresses these challenges through three key ideas. First, we introduce SVD entropy as a compression-based measure of document complexity that distinguishes between general foundational content and specialized technical material based on vocabulary distribution patterns in the semantic space. Second, we develop asymmetric cross-entropy kernels that measure the information cost of encoding one document using another's vocabulary distribution, naturally capturing directional semantic relationships and prerequisite dependencies. Third, we combine these information-theoretic measures with diffusion geometry to compute semantic geodesics that represent optimal learning pathways through the knowledge space, respecting both complexity gradients and conceptual relationships.
-
-This approach enables the discovery of natural progression sequences in knowledge domains while providing quantitative characterization of document complexity.
+The core building blocks of the framework are as follows. Term Frequency-Inverse Document Frequency (TF-IDF) \cite{salton1988term} treats the inverse document frequency of a word as a measure of its information content: words that appear across many documents carry little discriminative information, while rare words are highly informative. Latent Semantic Analysis (LSA) \cite{deerwester1990indexing} via Singular Value Decomposition (SVD) of the TF-IDF vectors uncovers the latent semantic structure of the corpus, and a Non-negative SVD (NN-SVD) \cite{boutsidis2008svd} transformation allows document representations to be interpreted as probability distributions over semantic components. This connects document complexity directly to compressibility: documents using common, widely-shared vocabulary are well-represented by the dominant SVD components (low entropy), while documents with specialized vocabulary require many components for accurate reconstruction (high entropy). Finally, cross-entropy between document distributions serves as a directed similarity measure related to the Kullback-Leibler divergence: it is easy to encode a specialized document using the vocabulary of a general one, but not vice versa. This asymmetry defines a directed kernel from which geodesics can be computed, tracing natural learning progressions through the corpus.
 
 \section{Data}
 
@@ -56,9 +54,8 @@ Each document contains text content, URL, and topic classification, with topics 
 
 \subsection{Data Properties}
 
-This dataset provides an ideal testbed for evaluating semantic relationships and learning pathways in mathematical and machine learning concepts. The hierarchical nature of mathematical knowledge, from foundational linear algebra to advanced neural architectures, allows us to validate whether our diffusion geodesics capture meaningful semantic progressions.
-
-The documents vary significantly in complexity and abstraction level, providing a natural gradient for testing our entropy-based characterization methods. Furthermore, the well-defined conceptual relationships in mathematics and machine learning enable qualitative validation of discovered semantic paths.
+This dataset provides an ideal testbed for evaluating semantic relationships and learning pathways in mathematical and machine learning concepts. The hierarchical nature of mathematical knowledge, from foundational linear algebra to advanced neural architectures, allows us to validate whether our geodesics capture meaningful semantic progressions.
+The documents vary significantly in complexity and abstraction level, providing a natural gradient for testing our entropy-based characterization methods.
 
 \section{Methods}
 
@@ -121,9 +118,17 @@ and compute a cross-entropy based kernel:
 \mathbf{K}_{ij} = -\sum_{k} \mathbf{P}_{ik} \log_2(\mathbf{P}_{jk})
 \end{equation}
 
+which can be written compactly as a matrix product
+
+\begin{equation}
+\mathbf{K} = -\mathbf{P}\,(\log_2 \mathbf{P})^T
+\end{equation}
+
+where $\log_2$ is applied element-wise to $\mathbf{P}$.
+
 \subsubsection{SVD Entropy as Document Generality and Complexity Measure}
 
-The SVD entropy provides a novel characterization of document generality through the fundamental principle that \textbf{documents using common, widely-shared vocabulary can be more efficiently compressed using the dominant SVD components, while documents with specialized vocabulary require more components for accurate representation}.
+The SVD entropy provides a novel characterization of document generality through the fundamental principle that documents using common, widely-shared vocabulary can be more efficiently compressed using the dominant SVD components, while documents with specialized vocabulary require more components for accurate representation.
 
 \begin{equation}
 H_{\text{SVD}}(d) = \frac{\mathbf{K}_{dd}}{\log_2(n)}
@@ -142,7 +147,7 @@ This compression-based complexity measure provides an objective, corpus-relative
 
 \subsubsection{Asymmetric Cross-Entropy Kernel Interpretation}
 
-The cross-entropy kernel $\mathbf{K}_{ij}$ has a profound information-theoretic interpretation that captures the fundamental asymmetries in semantic relationships between documents. Specifically, $\mathbf{K}_{ij}$ measures the \textbf{expected number of bits required to encode document $i$ using the vocabulary distribution of document $j$ as the coding scheme}.
+The cross-entropy kernel $\mathbf{K}_{ij}$ has a profound information-theoretic interpretation that captures the fundamental asymmetries in semantic relationships between documents. Specifically, $\mathbf{K}_{ij}$ measures the expected number of bits required to encode document $i$ using the vocabulary distribution of document $j$ as the coding scheme.
 
 This asymmetric formulation reveals several important semantic phenomena. Information flow and teaching relationships emerge when $\mathbf{K}_{ij} < \mathbf{K}_{ji}$, indicating that document $j$ provides a more efficient encoding for document $i$ than vice versa. This suggests that $j$ contains the "vocabulary foundation" or conceptual framework needed to understand $i$, and in educational contexts, this indicates that $j$ could serve as a prerequisite or explanatory text for $i$.
 
@@ -213,30 +218,34 @@ We construct a k-nearest neighbors graph using diffusion distances and apply Dij
 
 \subsection{Geodesic Path Analysis}
 
-We computed geodesic paths between conceptually distant documents, starting from "Introducing matrices" (basic linear algebra) and ending at "LSTM" (advanced neural networks). The analysis reveals several key insights about semantic structure and learning pathways in the mathematical machine learning domain.
+We computed a geodesic path between two conceptually distant documents: a foundational linear algebra review (entropy 0.190) at one end and a Wikipedia article on sparse coding (entropy 0.726) at the other. Sparse coding, which describes the representation of stimuli by the strong activation of a small subset of neurons, sits at the intersection of information theory, computational neuroscience, and deep learning, making it a natural high-entropy endpoint in this corpus. The path was found by running Dijkstra's algorithm on a k-nearest-neighbor graph weighted by diffusion distances, as described in the Methods section. The result is a sequence of 13 intermediate documents that forms a curriculum-like progression, automatically discovered from the geometry of the corpus without any manual annotation.
 
 \subsection{Visualization Analysis}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\textwidth]{/home/oliver/text-learning/geodesic.png}
-\caption{Geodesic path visualization showing semantic transitions between documents in the diffusion map embedding.}
+\includegraphics[width=\textwidth]{/home/oliver/diffusion_geodesics/figures/geodesic_path.png}
+\caption{KNN graph of the document corpus visualized with a spring layout \cite{spring-layout}, colored by SVD entropy (blue: low entropy, red: high entropy). The green star marks the start of the geodesic (low-entropy linear algebra review in the blue cluster), the blue square marks the end (the sparse coding article, entropy 0.726). Intermediate path nodes are shown as hollow circles connected by the green geodesic line.}
 \label{fig:geodesic}
 \end{figure}
 
-The 2D spring layout \cite{spring-layout} visualization of the KNN graph in Figure \ref{fig:geodesic} reveals the intrinsic geometric structure of the document manifold through diffusion map embedding. The color gradient represents SVD entropy values, creating a natural "complexity landscape" where blue regions (low entropy, 0.3-0.4) may correspond to foundational concepts, and red regions (high entropy, 0.7-0.8) specialized topics.
+Figure \ref{fig:geodesic} shows the KNN graph embedded in 2D using a spring (force-directed) layout \cite{spring-layout}. The node color encodes SVD entropy: blue nodes have low entropy (general, foundational documents) and red nodes have high entropy (specialized, advanced documents). The structural separation is immediately visible: the bottom-right cluster is almost entirely blue, corresponding to introductory mathematical content such as linear algebra tutorials and probability primers. The large left and central regions are predominantly red, representing advanced and specialized material. This spatial separation confirms that the diffusion geometry naturally organizes documents along a complexity gradient without any supervision.
 
-The geodesic path (red line with triangular markers) demonstrates a clear semantic progression from the bottom-right (start point, green circle) to the center-left (end point, red square). This trajectory traverses multiple entropy gradients, suggesting the path naturally follows increasing conceptual complexity. Notably, the path avoids the densest red regions, indicating that the algorithm discovers routes through intermediate complexity levels rather than attempting direct transitions between fundamentally different concept spaces.
+The geodesic (green line) begins at the green star in the bottom-right blue cluster and ends at the blue square near the upper-right boundary of the graph. The path first traverses within the low-entropy cluster, then bridges toward the central and upper regions through several intermediate documents. Notably, the path does not cut directly through the densest red region; instead it follows the periphery, suggesting that the algorithm identifies a chain of intermediate documents that share sufficient vocabulary overlap to allow efficient encoding, rather than making large jumps across conceptually distant material.
 
 \subsubsection{Geodesic Path Progression Analysis}
 
-\input{/home/oliver/text-learning/diffusion_geodesics/geodesic_path.tex}
+\input{../../notebooks/geodesic_path.tex}
 
-Table \ref{tab:geodesic_path} shows the semantic progression along the discovered 19-step path, exhibiting a clear entropy gradient from 0.4861 (basic matrices) to 0.7738 (LSTM networks).
+Table \ref{tab:geodesic_path} lists the 13 documents along the discovered path together with their SVD entropy values. The entropy rises from 0.190 at the start to values above 0.70 at the end, with only minor non-monotonicities reflecting short local detours through the graph.
 
-The path reveals a continuous progression through the conceptual landscape, beginning with basic mathematical foundations and gradually transitioning through core machine learning concepts including autoencoders and neural networks, ultimately reaching sophisticated architectures like LSTM networks.
+The path opens with two closely related introductory linear algebra documents. The first is a comprehensive linear algebra appendix (\texttt{fncbook.github.io}) covering the core vocabulary of the field: matrix dimensions, the transpose, matrix multiplication as linear combinations of columns, inner and outer products, and the connection between invertibility and uniqueness of solutions to linear systems. Its SVD entropy is very low (0.190), reflecting that this vocabulary is extremely common across the corpus and compresses well onto the dominant singular vectors. The second document, a slide-based introduction titled \textit{Linear Algebra for Fun and Profit} (\texttt{sheaves.github.io}, entropy 0.371), covers similar definitional ground but motivates matrices through broader applications including social network analysis, statistical correlation matrices, image compression, and discrete dynamical systems such as the Fibonacci recurrence.
 
-The smooth entropy progression with minimal backtracking demonstrates that diffusion geodesics successfully identify natural learning sequences, automatically discovering pedagogically meaningful pathways.
+The path then moves into applied linear algebra territory, and here a particularly striking pattern emerges. Steps 3, 4, and 5 are three successive workbook assignments from a single course on linear algebra by Theron Hitchman, structured around Gilbert Strang's textbook \textit{Introduction to Linear Algebra}. Crucially, the geodesic recovers these assignments in their correct pedagogical order: Chapter~1.3 (matrix operations and vector spaces, entropy 0.408), followed by Chapter~2.1 (three perspectives on matrix--vector multiplication and Gaussian elimination, entropy 0.535), followed by Chapter~2.6 (LU factorisation and its role in practical linear system solving, entropy 0.637). The algorithm had no access to chapter numbers, course structure, or any metadata; it recovered the correct textbook ordering purely from the diffusion geometry of the vocabulary distributions. Between step 2 and step 3, the path also passes through an edge-detection document applying convolution kernels to images, which shares vocabulary with both basic linear algebra and applied numerical computation, providing a natural conceptual bridge. The entropy rises from 0.43 to 0.64 across this segment as the vocabulary shifts from broadly shared matrix terminology toward more specialised algorithmic and numerical content.
+
+Steps 6 onward cross into statistical and machine learning domains. An R package reference for extreme-value threshold selection (entropy 0.673) marks the transition from linear algebra into applied statistics; a Bayesian statistics dissertation (0.694) introduces probabilistic modelling vocabulary; and a review of the DADS skill-discovery paper (0.696) brings in reinforcement learning terminology. Later steps cover formal theorem proving in Lean (0.708), AutoML hyperparameter configuration spaces (0.681), and convolutional neural networks applied to medical imaging (0.735). The path terminates at a Wikipedia article on sparse coding (0.726), which characterises neural representations through sparse population activation and ties together vocabulary from information theory, neuroscience, and deep learning, making it a semantically rich and appropriately specialised endpoint.
+
+The overall entropy progression, with only small local reversals, demonstrates that the diffusion geodesic successfully recovers a pedagogically meaningful ordering from the raw geometric structure of the corpus, without any explicit difficulty labels or curriculum design.
 
 \section{Discussion}
 
