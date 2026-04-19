@@ -2,13 +2,18 @@
 
 ## Abstract
 
-Human knowledge acquisition involves navigating from general, foundational concepts toward specialized, advanced material. This work presents an information-theoretic framework that models this process as directed paths along entropy gradients in document spaces, characterized through asymmetric cross-entropy relationships.
-
-We leverage Latent Semantic Analysis (SVD of TF-IDF matrices) to extract latent conceptual dimensions and introduce an entropy-based complexity measure on non-negative SVD components. This measure positions documents on a generality-specialization spectrum based on how information is distributed across latent semantic features. Going beyond symmetric similarity, we employ cross-entropy as a directed document similarity measure, interpreting one document's content through another's word distribution. This asymmetry naturally encodes prerequisite relationships, where low-entropy documents serve as conceptual foundations for high-entropy ones.
-
-Applied to OpenWebMath and Wikipedia corpora, we complement our SVD entropy with word rank distributions and corpus-level cross-entropy as additional complexity indicators. High-entropy documents exhibit specialized, narrow terminology while low-entropy documents use broader, foundational vocabularies. The asymmetric cross-entropy kernel enables construction of geodesic learning trajectories through the document manifold, providing a principled approach to curriculum design and knowledge organization in scientific discourse.
-
-**Keywords:** information theory, cross-entropy, document complexity, entropy measures, latent semantic analysis, knowledge structure
+For a human to learn a new advanced scientific concept from scratch, the learn-
+ing path will include materials of increasingly difficult and specialized character.
+This work establishes a framework based on concepts from computer linguistics
+and information theory to capture this linguistic complexity with an entropy-based
+complexity measure for texts, which depends on how typical a document’s vocab-
+ulary is relative to the general corpus. A cross-entropy based measure is further
+introduced that simultaneously quantifies document similarity and indicates the
+direction of complexity increase. This asymmetric measure is then used to find
+geodesics between simple, introductory documents and complex, advanced ones,
+potentially uncovering useful progressions of prerequisite documents. The meth-
+ods are validated qualitatively on an exemplary corpus of machine learning and
+mathematics related documents.
 
 ---
 
