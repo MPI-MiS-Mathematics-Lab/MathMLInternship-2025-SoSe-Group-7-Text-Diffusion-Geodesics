@@ -64,8 +64,23 @@ plot_markov_graph_spring_layout = False
 #corpus_file = "../data/wiki_ml_zeroshot.csv"
 #df_corpus = pd.read_csv(corpus_file, index_col=0)
 
+#%%
 corpus_file = "../data/wiki_ml_zeroshot.parquet"
-df_corpus = pd.read_parquet(corpus_file)
+df_corpus_webmath = pd.read_parquet(corpus_file)
+df_corpus_webmath["corpus"] = "openweb_math"
+
+#%%
+corpus_file = "../data/s2orc_ml.parquet"
+df_corpus_s2orc = pd.read_parquet(corpus_file)
+df_corpus_s2orc["corpus"] = "s2orc"
+
+#%%
+df_corpus_s2orc = df_corpus_s2orc.sample(3_000, replace=False)
+pd.value_counts(pd.DatetimeIndex(df_corpus_s2orc["publication_date"]).year).iloc[::-1].plot.bar()
+
+#%%
+df_corpus = pd.concat((df_corpus_s2orc, df_corpus_webmath))
+#df_corpus = df_corpus_webmath
 
 
 #%%
@@ -78,6 +93,18 @@ vectorizer = TfidfVectorizer(
 )
 tfidf_matrix = vectorizer.fit_transform(df_corpus["text"])
 print(tfidf_matrix.shape)
+
+#%%
+# Inspect vocabulary: sort by column index (= order in the TF-IDF matrix)
+vocab_df = (
+    pd.Series(vectorizer.vocabulary_)
+    .reset_index()
+    .rename(columns={"index": "term", 0: "col_index"})
+    .sort_values("col_index")
+    .reset_index(drop=True)
+)
+print(f"Vocabulary size: {len(vocab_df)}")
+vocab_df
 
 #%%
 # Apply SVD
@@ -159,8 +186,10 @@ def compute_diffusion_distances(M_t, stationary_distribution):
     return diffusion_distances
 
 # Define parameter grids
-sigma_values = [1.0, 1.2, 1.3, 1.4, 1.5]
-t_values = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+#sigma_values = [1.0, 1.2, 1.3, 1.4, 1.5]
+#t_values = [1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+sigma_values = [1.0]
+t_values = [1.3]
 
 # Store results for grid plotting
 grid_results = {}
@@ -292,6 +321,15 @@ plt.figure(figsize=(10, 8))
 nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray')
 scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20, 
                                 node_color=df_corpus["topic"],
+                                alpha=0.8)
+plt.title(f'2D KNN Graph (k={k}, t={t})')
+plt.axis('off')
+plt.show()
+
+plt.figure(figsize=(10, 8))
+nx.draw_networkx_edges(G, pos_2d, alpha=0.3, width=0.5, edge_color='gray')
+scatter = nx.draw_networkx_nodes(G, pos_2d, node_size=20, 
+                                node_color=df_corpus["corpus"],
                                 alpha=0.8)
 plt.title(f'2D KNN Graph (k={k}, t={t})')
 plt.axis('off')
@@ -448,3 +486,143 @@ plt.axis('off')
 plt.show()
 
 #%%
+# ===========================================================================
+# LLM Perplexity Computation and Correlation with SVD Entropy
+# Model choices that fit in RTX 3090 Ti (24 GB VRAM, float16):
+#   "Qwen/Qwen2.5-7B"               – no gating, strong general model
+#   "mistralai/Mistral-7B-v0.3"     – no gating
+#   "meta-llama/Meta-Llama-3.1-8B"  – requires HuggingFace token approval
+# ===========================================================================
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+LLM_MODEL_NAME = "Qwen/Qwen2.5-7B"
+PERPLEXITY_CACHE = "../data/llm_perplexity.csv"
+
+tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
+llm_model = AutoModelForCausalLM.from_pretrained(
+    LLM_MODEL_NAME,
+    torch_dtype=torch.float16,
+    device_map="cuda",
+)
+llm_model.eval()
+print(f"Loaded {LLM_MODEL_NAME}")
+print(f"GPU memory allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+
+#%%
+# Batched perplexity: tokenize many docs at once and do a single forward pass per batch.
+# Truncates each document to MAX_PPL_TOKENS tokens (covers ~90%+ of most docs).
+# Speedup: ~10-20x vs per-document loop on a 3090 Ti.
+#MAX_PPL_TOKENS = 4096
+#PPL_BATCH_SIZE = 2    # 2048 tokens × 4 × ~2 bytes ≈ 16 MB activations; safe on 3090 Ti
+MAX_PPL_TOKENS = 2048
+PPL_BATCH_SIZE = 4
+PPL_SAVE_EVERY = 50  # checkpoint to disk every N batches
+
+def compute_perplexity_batch(texts: list[str], model, tokenizer,
+                              max_length: int = MAX_PPL_TOKENS,
+                              batch_size: int = PPL_BATCH_SIZE) -> list[float]:
+    """Batched causal-LM perplexity with truncation.
+
+    Each document is truncated to `max_length` tokens so all sequences in a
+    batch are the same length (no padding overhead).  The NLL is averaged over
+    actual (non-padding) tokens then exponentiated.
+    """
+    loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+    results = []
+
+    for i in range(0, len(texts), batch_size):
+        batch = [str(t) for t in texts[i : i + batch_size]]
+        enc = tokenizer(
+            batch,
+            return_tensors="pt",
+            truncation=True,
+            max_length=max_length,
+            padding=True,
+        )
+        input_ids = enc.input_ids.to(model.device)
+        attention_mask = enc.attention_mask.to(model.device)
+
+        with torch.no_grad():
+            logits = model(input_ids, attention_mask=attention_mask).logits
+
+        # Causal shift: predict token t+1 from token t
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = input_ids[:, 1:].contiguous()
+        shift_mask   = attention_mask[:, 1:].contiguous().float()
+
+        token_nll = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+        ).view(shift_labels.shape)
+
+        # Average NLL over non-padding tokens, then exponentiate
+        n_tokens = shift_mask.sum(dim=1).clamp(min=1)
+        ppl = torch.exp((token_nll * shift_mask).sum(dim=1) / n_tokens)
+        results.extend(ppl.cpu().float().tolist())
+
+    return results
+
+#%%
+# Load from cache if available, otherwise compute and save
+if os.path.exists(PERPLEXITY_CACHE):
+    ppl_cache = pd.read_csv(PERPLEXITY_CACHE, index_col=0)
+    ppl_cache = ppl_cache[~ppl_cache.index.duplicated(keep="last")]
+    df_corpus["llm_perplexity"] = ppl_cache.reindex(df_corpus.index)["llm_perplexity"]
+    print(f"Loaded {df_corpus['llm_perplexity'].notna().sum()} cached perplexity values")
+else:
+    df_corpus["llm_perplexity"] = float("nan")
+
+missing_idx = df_corpus.index[df_corpus["llm_perplexity"].isna()].tolist()
+print(f"Computing perplexity for {len(missing_idx)} documents "
+      f"(batch={PPL_BATCH_SIZE}, max_tokens={MAX_PPL_TOKENS})...")
+
+for i in tqdm(range(0, len(missing_idx), PPL_BATCH_SIZE), desc="Perplexity batches"):
+    batch_idx = missing_idx[i : i + PPL_BATCH_SIZE]
+    texts = df_corpus.loc[batch_idx, "text"].tolist()
+    ppls  = compute_perplexity_batch(texts, llm_model, tokenizer,
+                                      max_length=MAX_PPL_TOKENS,
+                                      batch_size=PPL_BATCH_SIZE)
+    for idx, ppl in zip(batch_idx, ppls):
+        df_corpus.at[idx, "llm_perplexity"] = ppl
+
+    # Checkpoint periodically so a crash doesn't lose all progress
+    batch_num = i // PPL_BATCH_SIZE
+    if (batch_num + 1) % PPL_SAVE_EVERY == 0:
+        df_corpus[["llm_perplexity"]].to_csv(PERPLEXITY_CACHE)
+
+df_corpus[["llm_perplexity"]].to_csv(PERPLEXITY_CACHE)
+print(f"Saved perplexities to {PERPLEXITY_CACHE}")
+
+#%%
+# Correlation with SVD entropy
+valid = df_corpus[["llm_perplexity", "svd_entropy"]].dropna()
+corr_pearson  = valid["llm_perplexity"].corr(valid["svd_entropy"])
+corr_spearman = valid["llm_perplexity"].corr(valid["svd_entropy"], method="spearman")
+print(f"Pearson  r(llm_perplexity, svd_entropy) = {corr_pearson:.4f}")
+print(f"Spearman r(llm_perplexity, svd_entropy) = {corr_spearman:.4f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+ax = axes[0]
+ax.scatter(valid["svd_entropy"], valid["llm_perplexity"], alpha=0.3, s=5)
+ax.set_xlabel("SVD Entropy")
+ax.set_ylabel("LLM Perplexity")
+ax.set_yscale("log")
+ax.set_title(
+    f"LLM Perplexity vs SVD Entropy\n"
+    f"Pearson r={corr_pearson:.3f}  |  Spearman r={corr_spearman:.3f}"
+)
+ax.grid(True, alpha=0.3)
+
+ax = axes[1]
+ax.hist(np.log(valid["llm_perplexity"]), bins=50, alpha=0.7, edgecolor="black")
+ax.set_xlabel("log(LLM Perplexity)")
+ax.set_ylabel("Frequency")
+ax.set_title("Distribution of log LLM Perplexity")
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# %%
